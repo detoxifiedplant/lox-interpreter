@@ -32,8 +32,8 @@ fn main() -> miette::Result<()> {
                     Err(e) => {
                         if let Some(unrecognized) = e.downcast_ref::<SingleTokenError>() {
                             any_cc_error = true;
-                            eprint!("{e:?}");
-                            eprint!(
+                            eprintln!("{e:?}");
+                            eprintln!(
                                 "[line {}] Error: Unexpected character: {}",
                                 unrecognized.line(),
                                 unrecognized.token
