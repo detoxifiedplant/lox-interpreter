@@ -1,4 +1,5 @@
 use miette::{Diagnostic, Error, LabeledSpan, SourceSpan};
+use core::f64;
 use std::{borrow::Cow, fmt};
 use thiserror::Error;
 
@@ -109,7 +110,7 @@ impl fmt::Display for Token<'_> {
             TokenKind::Bang => write!(f, "BANG {origin} null"),
             TokenKind::Equal => write!(f, "EQUAL {origin} null"),
             TokenKind::String => write!(f, "STRING {origin} {}", Token::unescape(origin)),
-            TokenKind::Number(n) => write!(f, "NUMBER {origin} {n}"),
+            TokenKind::Number(n) => write!(f, "NUMBER {origin} {n:.1}"),
             TokenKind::Ident => write!(f, "IDENTIFIER {origin} null"),
             TokenKind::And => write!(f, "AND {origin} null"),
             TokenKind::Class => write!(f, "CLASS {origin} null"),
@@ -260,7 +261,7 @@ impl<'de> Iterator for Lexer<'de> {
                     self.byte += extra_bytes;
                     self.rest = &self.rest[extra_bytes..];
 
-                    let n = match literal.parse() {
+                    let n = match literal.parse::<f64>() {
                         Ok(n) => n,
                         Err(err) => {
                             return Some(Err(miette::miette! {
