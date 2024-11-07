@@ -18,6 +18,7 @@ enum Commands {
 
 fn main() -> miette::Result<()> {
     let args = Args::parse();
+    let mut any_cc_error = false;
 
     match args.command {
         Commands::Tokenize { filename } => {
@@ -30,21 +31,24 @@ fn main() -> miette::Result<()> {
                     Ok(t) => t,
                     Err(e) => {
                         if let Some(unrecognized) = e.downcast_ref::<SingleTokenError>() {
+                            any_cc_error = true;
                             eprint!("{e:?}");
                             eprint!(
                                 "[line {}] Error: Unexpected character: {}",
                                 unrecognized.line(),
                                 unrecognized.token
                             );
-                            std::process::exit(65);
                         }
-                        return Err(e);
+                        continue;
                     }
                 };
                 println!("{token}");
             }
             println!("EOF  null");
         }
+    }
+    if any_cc_error {
+        std::process::exit(65);
     }
     Ok(())
 }
