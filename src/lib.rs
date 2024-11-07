@@ -110,7 +110,7 @@ impl fmt::Display for Token<'_> {
             TokenKind::Bang => write!(f, "BANG {origin} null"),
             TokenKind::Equal => write!(f, "EQUAL {origin} null"),
             TokenKind::String => write!(f, "STRING {origin} {}", Token::unescape(origin)),
-            TokenKind::Number(n) => write!(f, "NUMBER {origin} {n:.1}"),
+            TokenKind::Number(n) => write!(f, "NUMBER {origin} {n:.2}"),
             TokenKind::Ident => write!(f, "IDENTIFIER {origin} null"),
             TokenKind::And => write!(f, "AND {origin} null"),
             TokenKind::Class => write!(f, "CLASS {origin} null"),
