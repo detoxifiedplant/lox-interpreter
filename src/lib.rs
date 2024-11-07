@@ -1,7 +1,26 @@
 use core::fmt;
+use miette::{Diagnostic, Error, LabeledSpan, SourceSpan};
 use std::borrow::Cow;
+use thiserror::Error;
 
-use miette::{Error, LabeledSpan};
+#[derive(Diagnostic, Debug, Error)]
+#[error("Unexpected token '{token}' in input")]
+pub struct SingleTokenError {
+    #[source_code]
+    src: String,
+
+    pub token: char,
+
+    #[label = "this input character"]
+    err_span: SourceSpan,
+}
+
+impl SingleTokenError {
+    pub fn line(&self) -> usize{
+        let unrecognized_line = &self.src[..=self.err_span.offset()];
+        unrecognized_line.lines().count()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token<'de> {
@@ -164,13 +183,12 @@ impl<'de> Iterator for Lexer<'de> {
                 'a'..='z' | 'A'.. => Started::Ident,
                 c if c.is_whitespace() => continue,
                 c => {
-                    return Some(Err(miette::miette! {
-                        labels = vec![
-                            LabeledSpan::at(self.byte - c.len_utf8()..self.byte, "this char")
-                        ],
-                        "Unexpected token '{c}' in input"
+                    return Some(Err(SingleTokenError {
+                        src: self.whole.to_string(),
+                        token: c,
+                        err_span: SourceSpan::from(self.byte - c.len_utf8()..self.byte),
                     }
-                    .with_source_code(self.whole.to_string())))
+                    .into()));
                 }
             };
             break match started {
@@ -181,13 +199,13 @@ impl<'de> Iterator for Lexer<'de> {
                         .unwrap_or(c_onwards.len());
                     let mut literal = &c_onwards[..first_non_digit];
                     let mut dotted = literal.splitn(3, '.');
-                    match (dotted.next(), dotted.next(), dotted.next()){
+                    match (dotted.next(), dotted.next(), dotted.next()) {
                         (Some(one), Some(two), Some(_)) => {
                             literal = &literal[..one.len() + 1 + two.len()];
-                        },
+                        }
                         (Some(one), Some(""), None) => {
                             literal = &literal[..one.len()];
-                        },
+                        }
                         _ => {} // leave literal as it is
                     }
                     let extra_bytes = literal.len() - c.len_utf8();
@@ -236,12 +254,12 @@ impl<'de> Iterator for Lexer<'de> {
                         "this" => TokenKind::This,
                         "var" => TokenKind::Var,
                         "while" => TokenKind::While,
-                        _ => TokenKind::Ident
+                        _ => TokenKind::Ident,
                     };
 
                     return Some(Ok(Token {
                         origin: literal,
-                        kind
+                        kind,
                     }));
                 }
                 Started::IfEqaulElse(yes, no) => {
