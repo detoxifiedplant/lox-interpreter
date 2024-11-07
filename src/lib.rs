@@ -311,6 +311,7 @@ impl<'de> Iterator for Lexer<'de> {
                         "this" => TokenKind::This,
                         "var" => TokenKind::Var,
                         "while" => TokenKind::While,
+                        "print" => TokenKind::Print,
                         _ => TokenKind::Ident,
                     };
 
