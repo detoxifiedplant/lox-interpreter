@@ -32,12 +32,16 @@ fn main() -> miette::Result<()> {
                     Err(e) => {
                         if let Some(unrecognized) = e.downcast_ref::<SingleTokenError>() {
                             any_cc_error = true;
-                            eprintln!("{e:?}");
                             eprintln!(
                                 "[line {}] Error: Unexpected character: {}",
                                 unrecognized.line(),
                                 unrecognized.token
                             );
+                        } else if let Some(unterminated) =
+                            e.downcast_ref::<StringTerminationError>()
+                        {
+                            any_cc_error = true;
+                            eprintln!("[line {}] Error: Unterminated string.", unterminated.line());
                         }
                         continue;
                     }

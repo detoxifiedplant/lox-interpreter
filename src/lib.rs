@@ -1,10 +1,9 @@
-use core::fmt;
 use miette::{Diagnostic, Error, LabeledSpan, SourceSpan};
-use std::borrow::Cow;
+use std::{borrow::Cow, fmt};
 use thiserror::Error;
 
 #[derive(Diagnostic, Debug, Error)]
-#[error("Unexpected token '{token}' in input")]
+#[error("Unexpected token '{token}'")]
 pub struct SingleTokenError {
     #[source_code]
     src: String,
@@ -16,7 +15,24 @@ pub struct SingleTokenError {
 }
 
 impl SingleTokenError {
-    pub fn line(&self) -> usize{
+    pub fn line(&self) -> usize {
+        let unrecognized_line = &self.src[..=self.err_span.offset()];
+        unrecognized_line.lines().count()
+    }
+}
+
+#[derive(Diagnostic, Debug, Error)]
+#[error("Unterminated string")]
+pub struct StringTerminationError {
+    #[source_code]
+    src: String,
+
+    #[label = "this string literal"]
+    err_span: SourceSpan,
+}
+
+impl StringTerminationError {
+    pub fn line(&self) -> usize {
         let unrecognized_line = &self.src[..=self.err_span.offset()];
         unrecognized_line.lines().count()
     }
@@ -115,8 +131,8 @@ impl fmt::Display for Token<'_> {
 }
 
 impl Token<'_> {
-    pub fn unescape<'de>(str: &'de str) -> Cow<'de, str> {
-        todo!()
+    pub fn unescape(s: &str) -> Cow<'_, str> {
+        Cow::Borrowed(s.trim_matches('"'))
     }
 }
 
@@ -193,7 +209,25 @@ impl<'de> Iterator for Lexer<'de> {
                 }
             };
             break match started {
-                Started::String => todo!(),
+                Started::String => {
+                    if let Some(end) = self.rest.find('"') {
+                        let literal = &c_onwards[..end + 1 + 1];
+                        self.byte += end + 1;
+                        self.rest = &self.rest[end + 1..];
+                        Some(Ok(Token {
+                            origin: literal,
+                            kind: TokenKind::String,
+                        }))
+                    } else {
+                        let err = StringTerminationError {
+                            src: self.whole.to_string(),
+                            err_span: SourceSpan::from(self.byte - c.len_utf8()..self.whole.len()),
+                        };
+                        self.byte += self.rest.len();
+                        self.rest = &self.rest[self.rest.len()..];
+                        return Some(Err(err.into()));
+                    }
+                }
                 Started::Slash => {
                     if self.rest.starts_with('/') {
                         let line_end = self.rest.find('\n').unwrap_or(self.rest.len());
@@ -201,9 +235,9 @@ impl<'de> Iterator for Lexer<'de> {
                         self.rest = &self.rest[line_end..];
                         continue;
                     } else {
-                        Some(Ok(Token{
+                        Some(Ok(Token {
                             origin: c_str,
-                            kind: TokenKind::Slash
+                            kind: TokenKind::Slash,
                         }))
                     }
                 }
@@ -295,7 +329,7 @@ impl<'de> Iterator for Lexer<'de> {
                         }))
                     }
                 }
-            };
+            }
         }
     }
 }
