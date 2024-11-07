@@ -152,6 +152,7 @@ impl<'de> Iterator for Lexer<'de> {
                 String,
                 Numbers,
                 Ident,
+                Slash,
                 IfEqaulElse(TokenKind, TokenKind),
             }
 
@@ -193,6 +194,19 @@ impl<'de> Iterator for Lexer<'de> {
             };
             break match started {
                 Started::String => todo!(),
+                Started::Slash => {
+                    if self.rest.starts_with('/') {
+                        let line_end = self.rest.find('\n').unwrap_or(self.rest.len());
+                        self.byte += line_end;
+                        self.rest = &self.rest[line_end..];
+                        continue;
+                    } else {
+                        Some(Ok(Token{
+                            origin: c_str,
+                            kind: TokenKind::Slash
+                        }))
+                    }
+                }
                 Started::Numbers => {
                     let first_non_digit = c_onwards
                         .find(|c| !matches!(c, '.' | '0'..='9'))
