@@ -20,8 +20,8 @@ pub struct SingleTokenError {
 
 impl SingleTokenError {
     pub fn line(&self) -> usize {
-        let unrecognized_line = &self.src[..=self.err_span.offset()];
-        unrecognized_line.lines().count()
+        let until_unrecongized = &self.src[..=self.err_span.offset()];
+        until_unrecongized.lines().count()
     }
 }
 
@@ -37,19 +37,19 @@ pub struct StringTerminationError {
 
 impl StringTerminationError {
     pub fn line(&self) -> usize {
-        let unrecognized_line = &self.src[..=self.err_span.offset()];
-        unrecognized_line.lines().count()
+        let until_unrecongized = &self.src[..=self.err_span.offset()];
+        until_unrecongized.lines().count()
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Token<'de> {
     pub origin: &'de str,
     pub offset: usize,
     pub kind: TokenKind,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenKind {
     LeftParen,
     RightParen,
@@ -65,22 +65,22 @@ pub enum TokenKind {
     EqualEqual,
     LessEqual,
     GreaterEqual,
-    Bang,
-    Equal,
     Less,
     Greater,
     Slash,
+    Bang,
+    Equal,
     String,
-    Number(f64),
     Ident,
+    Number(f64),
     And,
     Class,
-    If,
     Else,
     True,
     False,
     For,
     Fun,
+    If,
     Nil,
     Or,
     Print,
@@ -115,14 +115,14 @@ impl fmt::Display for Token<'_> {
             TokenKind::Bang => write!(f, "BANG {origin} null"),
             TokenKind::Equal => write!(f, "EQUAL {origin} null"),
             TokenKind::String => write!(f, "STRING {origin} {}", Token::unescape(origin)),
+            TokenKind::Ident => write!(f, "IDENTIFIER {origin} null"),
             TokenKind::Number(n) => {
-                if n.fract() == 0. {
-                    write!(f, "NUMBER {origin} {n:.1}")
+                if n == n.trunc() {
+                    write!(f, "NUMBER {origin} {n}.0")
                 } else {
                     write!(f, "NUMBER {origin} {n}")
                 }
             }
-            TokenKind::Ident => write!(f, "IDENTIFIER {origin} null"),
             TokenKind::And => write!(f, "AND {origin} null"),
             TokenKind::Class => write!(f, "CLASS {origin} null"),
             TokenKind::If => write!(f, "IF {origin} null"),
@@ -144,7 +144,7 @@ impl fmt::Display for Token<'_> {
 }
 
 impl Token<'_> {
-    pub fn unescape(s: &str) -> Cow<'_, str> {
+    pub fn unescape<'de>(s: &'de str) -> Cow<'de, str> {
         Cow::Borrowed(s.trim_matches('"'))
     }
 }
@@ -183,13 +183,14 @@ impl<'de> Lexer<'de> {
     ) -> Result<Token<'de>, miette::Error> {
         match self.next() {
             Some(Ok(token)) if check(&token) => Ok(token),
-            Some(Ok(token)) => Err(miette::miette!{
+            Some(Ok(token)) => Err(miette::miette! {
                 labels = vec![
-                    LabeledSpan::at(token.offset..token.offset + token.origin.len(), "this {terminator:?}"),
+                    LabeledSpan::at(token.offset..token.offset + token.origin.len(), "here"),
                 ],
-                help = "expected {terminator:?}",
-                "{unexpected}"
-            }.with_source_code(self.whole.to_string())),
+                help = format!("Expected {token:?}"),
+                "{unexpected}",
+            }
+            .with_source_code(self.whole.to_string())),
             Some(Err(e)) => Err(e),
             None => Err(Eof.into()),
         }
@@ -199,6 +200,7 @@ impl<'de> Lexer<'de> {
         if self.peeked.is_some() {
             return self.peeked.as_ref();
         }
+
         self.peeked = self.next();
         self.peeked.as_ref()
     }
@@ -207,22 +209,28 @@ impl<'de> Lexer<'de> {
 impl<'de> Iterator for Lexer<'de> {
     type Item = Result<Token<'de>, Error>;
 
+    /// Once the iterator returns `Err`, it will only return `None`.
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(next) = self.peeked.take() {
+            return Some(next);
+        }
+
         loop {
+            // NOTE: this must be in the loop for the indices to match up with c_onwards
             let mut chars = self.rest.chars();
             let c = chars.next()?;
             let c_at = self.byte;
             let c_str = &self.rest[..c.len_utf8()];
             let c_onwards = self.rest;
-            self.byte += c.len_utf8();
             self.rest = chars.as_str();
+            self.byte += c.len_utf8();
 
             enum Started {
-                String,
-                Numbers,
-                Ident,
                 Slash,
-                IfEqaulElse(TokenKind, TokenKind),
+                String,
+                Number,
+                Ident,
+                IfEqualElse(TokenKind, TokenKind),
             }
 
             let just = move |kind: TokenKind| {
@@ -244,14 +252,14 @@ impl<'de> Iterator for Lexer<'de> {
                 '-' => return just(TokenKind::Minus),
                 ';' => return just(TokenKind::Semicolon),
                 '*' => return just(TokenKind::Star),
-                '<' => Started::IfEqaulElse(TokenKind::LessEqual, TokenKind::Less),
-                '>' => Started::IfEqaulElse(TokenKind::GreaterEqual, TokenKind::Greater),
-                '!' => Started::IfEqaulElse(TokenKind::BangEqual, TokenKind::Bang),
-                '=' => Started::IfEqaulElse(TokenKind::EqualEqual, TokenKind::Equal),
+                '<' => Started::IfEqualElse(TokenKind::LessEqual, TokenKind::Less),
+                '>' => Started::IfEqualElse(TokenKind::GreaterEqual, TokenKind::Greater),
+                '!' => Started::IfEqualElse(TokenKind::BangEqual, TokenKind::Bang),
+                '=' => Started::IfEqualElse(TokenKind::EqualEqual, TokenKind::Equal),
                 '"' => Started::String,
                 '/' => Started::Slash,
-                '0'..='9' => Started::Numbers,
-                'a'..='z' | 'A'.. => Started::Ident,
+                '0'..='9' => Started::Number,
+                'a'..='z' | 'A'..='Z' | '_' => Started::Ident,
                 c if c.is_whitespace() => continue,
                 c => {
                     return Some(Err(SingleTokenError {
@@ -262,6 +270,7 @@ impl<'de> Iterator for Lexer<'de> {
                     .into()));
                 }
             };
+
             break match started {
                 Started::String => {
                     if let Some(end) = self.rest.find('"') {
@@ -278,14 +287,18 @@ impl<'de> Iterator for Lexer<'de> {
                             src: self.whole.to_string(),
                             err_span: SourceSpan::from(self.byte - c.len_utf8()..self.whole.len()),
                         };
+
+                        // swallow the remainder of input as being a string
                         self.byte += self.rest.len();
                         self.rest = &self.rest[self.rest.len()..];
+
                         return Some(Err(err.into()));
                     }
                 }
                 Started::Slash => {
                     if self.rest.starts_with('/') {
-                        let line_end = self.rest.find('\n').unwrap_or(self.rest.len());
+                        // this is a comment!
+                        let line_end = self.rest.find('\n').unwrap_or_else(|| self.rest.len());
                         self.byte += line_end;
                         self.rest = &self.rest[line_end..];
                         continue;
@@ -297,36 +310,40 @@ impl<'de> Iterator for Lexer<'de> {
                         }))
                     }
                 }
-                Started::Numbers => {
+                Started::Number => {
                     let first_non_digit = c_onwards
                         .find(|c| !matches!(c, '.' | '0'..='9'))
-                        .unwrap_or(c_onwards.len());
+                        .unwrap_or_else(|| c_onwards.len());
+
                     let mut literal = &c_onwards[..first_non_digit];
                     let mut dotted = literal.splitn(3, '.');
                     match (dotted.next(), dotted.next(), dotted.next()) {
                         (Some(one), Some(two), Some(_)) => {
                             literal = &literal[..one.len() + 1 + two.len()];
                         }
-                        (Some(one), Some(""), None) => {
+                        (Some(one), Some(two), None) if two.is_empty() => {
                             literal = &literal[..one.len()];
                         }
-                        _ => {} // leave literal as it is
+                        _ => {
+                            // leave literal as-is
+                        }
                     }
                     let extra_bytes = literal.len() - c.len_utf8();
                     self.byte += extra_bytes;
                     self.rest = &self.rest[extra_bytes..];
 
-                    let n = match literal.parse::<f64>() {
+                    let n = match literal.parse() {
                         Ok(n) => n,
-                        Err(err) => {
+                        Err(e) => {
                             return Some(Err(miette::miette! {
                                 labels = vec![
-                                    LabeledSpan::at(self.byte - literal.len()..self.byte, "this numeric literal")
+                                    LabeledSpan::at(self.byte - literal.len()..self.byte, "this numeric literal"),
                                 ],
-                                "{err}?"
+                                "{e}",
                             }.with_source_code(self.whole.to_string())));
                         }
                     };
+
                     return Some(Ok(Token {
                         origin: literal,
                         offset: c_at,
@@ -336,7 +353,7 @@ impl<'de> Iterator for Lexer<'de> {
                 Started::Ident => {
                     let first_non_ident = c_onwards
                         .find(|c| !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
-                        .unwrap_or(c_onwards.len());
+                        .unwrap_or_else(|| c_onwards.len());
 
                     let literal = &c_onwards[..first_non_ident];
                     let extra_bytes = literal.len() - c.len_utf8();
@@ -369,13 +386,13 @@ impl<'de> Iterator for Lexer<'de> {
                         kind,
                     }));
                 }
-                Started::IfEqaulElse(yes, no) => {
+                Started::IfEqualElse(yes, no) => {
                     self.rest = self.rest.trim_start();
                     let trimmed = c_onwards.len() - self.rest.len() - 1;
                     self.byte += trimmed;
-                    if self.rest.trim_start().starts_with('=') {
+                    if self.rest.starts_with('=') {
                         let span = &c_onwards[..c.len_utf8() + trimmed + 1];
-                        self.rest = &self.rest.trim_start()[1..];
+                        self.rest = &self.rest[1..];
                         self.byte += 1;
                         Some(Ok(Token {
                             origin: span,
